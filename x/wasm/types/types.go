@@ -15,6 +15,7 @@ const (
 	defaultMemoryCacheSize   uint32 = 100 // in MiB
 	defaultQueryGasLimit     uint64 = 3000000
 	defaultContractDebugMode        = false
+	AddrLen                         = 20
 )
 
 func (m Model) ValidateBasic() error {
