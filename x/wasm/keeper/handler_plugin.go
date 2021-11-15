@@ -3,6 +3,8 @@ package keeper
 import (
 	"errors"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -22,12 +24,14 @@ type msgEncoder interface {
 
 // SDKMessageHandler can handles messages that can be encoded into sdk.Message types and routed.
 type SDKMessageHandler struct {
-	router   sdk.Router
-	encoders msgEncoder
+	router    sdk.Router
+	msgRouter *baseapp.MsgServiceRouter
+	encoders  msgEncoder
 }
 
 func NewDefaultMessageHandler(
 	router sdk.Router,
+	msgRouter *baseapp.MsgServiceRouter,
 	channelKeeper types.ChannelKeeper,
 	capabilityKeeper types.CapabilityKeeper,
 	bankKeeper types.Burner,
@@ -40,16 +44,18 @@ func NewDefaultMessageHandler(
 		encoders = encoders.Merge(e)
 	}
 	return NewMessageHandlerChain(
-		NewSDKMessageHandler(router, encoders),
+		NewSDKMessageHandler(router, msgRouter, encoders),
 		NewIBCRawPacketHandler(channelKeeper, capabilityKeeper),
 		NewBurnCoinMessageHandler(bankKeeper),
 	)
 }
 
-func NewSDKMessageHandler(router sdk.Router, encoders msgEncoder) SDKMessageHandler {
+func NewSDKMessageHandler(
+	router sdk.Router, msgRouter *baseapp.MsgServiceRouter, encoders msgEncoder) SDKMessageHandler {
 	return SDKMessageHandler{
-		router:   router,
-		encoders: encoders,
+		router:    router,
+		msgRouter: msgRouter,
+		encoders:  encoders,
 	}
 }
 
@@ -86,16 +92,32 @@ func (h SDKMessageHandler) handleSdkMessage(ctx sdk.Context, contractAddr sdk.Ad
 		}
 	}
 
-	// find the handler and execute it
-	handler := h.router.Route(ctx, msg.Route())
-	if handler == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, msg.Route())
+	if h.msgRouter == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrPanic, "msgRouter is nil")
 	}
-	res, err := handler(ctx, msg)
-	if err != nil {
-		return nil, err
+
+	if handler := h.msgRouter.Handler(msg); handler != nil {
+		res, err := handler(ctx, msg)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+
+	} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
+		// legacy sdk.Msg routing
+		handler := h.router.Route(ctx, legacyMsg.Route())
+		if handler == nil {
+			return nil, sdkerrors.Wrapf(
+				sdkerrors.ErrUnknownRequest, "unrecognized message route: %s; message", legacyMsg.Route())
+		}
+		res, err := handler(ctx, msg)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+
 	}
-	return res, nil
+	return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
 }
 
 // MessageHandlerChain defines a chain of handlers that are called one by one until it can be handled.

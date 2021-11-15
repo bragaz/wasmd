@@ -53,14 +53,14 @@ func TestFromIBCTransferToContract(t *testing.T) {
 	// with the channels established, let's do a transfer via sdk transfer
 	coinToSendToB := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(1))
 	timeoutHeight := clienttypes.NewHeight(1, 110)
-	msg := ibctransfertypes.NewMsgTransfer(channelA.PortID, channelA.ID, coinToSendToB, chainA.SenderAccount.GetAddress(), chainB.SenderAccount.GetAddress().String(), timeoutHeight, 0)
+	msg := ibctransfertypes.NewMsgTransfer(channelA.PortID, channelA.ID, coinToSendToB, chainA.SenderAccount.GetAddress().String(), chainB.SenderAccount.GetAddress().String(), timeoutHeight, 0)
 	err := coordinator.SendMsg(chainA, chainB, clientB, msg)
 	require.NoError(t, err)
 
 	// when relay to chain B and handle Ack on chain A
 	fungibleTokenPacket := ibctransfertypes.NewFungibleTokenPacketData(coinToSendToB.Denom, coinToSendToB.Amount.Uint64(), chainA.SenderAccount.GetAddress().String(), chainB.SenderAccount.GetAddress().String())
 	packet := channeltypes.NewPacket(fungibleTokenPacket.GetBytes(), 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, 0)
-	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)}).GetBytes()
+	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)}).Acknowledgement()
 	err = coordinator.RelayPacket(chainA, chainB, clientA, clientB, packet, ack)
 	require.NoError(t, err)
 
@@ -124,7 +124,7 @@ func TestContractCanUseIBCTransferMsg(t *testing.T) {
 	fungibleTokenPacket := ibctransfertypes.NewFungibleTokenPacketData(coinToSendToB.Denom, coinToSendToB.Amount.Uint64(), myContractAddr.String(), receiverAddress.String())
 	packet := channeltypes.NewPacket(fungibleTokenPacket.GetBytes(), 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, 0)
 	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
-	err = coordinator.RelayPacket(chainA, chainB, clientA, clientB, packet, ack.GetBytes())
+	err = coordinator.RelayPacket(chainA, chainB, clientA, clientB, packet, ack.Acknowledgement())
 	require.NoError(t, err) // relay committed
 
 	bankKeeperB := wasmd.NewTestSupport(t, chainB.App).BankKeeper()
@@ -184,7 +184,7 @@ func TestContractCanEmulateIBCTransferMessage(t *testing.T) {
 	fungibleTokenPacket := ibctransfertypes.NewFungibleTokenPacketData(coinToSendToB.Denom, coinToSendToB.Amount.Uint64(), myContractAddr.String(), receiverAddress.String())
 	packet := channeltypes.NewPacket(fungibleTokenPacket.GetBytes(), 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, timeout)
 	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
-	err = coordinator.RelayPacket(chainA, chainB, clientA, clientB, packet, ack.GetBytes())
+	err = coordinator.RelayPacket(chainA, chainB, clientA, clientB, packet, ack.Acknowledgement())
 	require.NoError(t, err) // relay committed
 
 	bankKeeperB := wasmd.NewTestSupport(t, chainB.App).BankKeeper()
@@ -431,7 +431,7 @@ func (c *receiverContract) IBCPacketReceive(codeID wasmvm.Checksum, env wasmvmty
 	}
 
 	var log []wasmvmtypes.EventAttribute // note: all events are under `wasm` event type
-	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)}).GetBytes()
+	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)}).Acknowledgement()
 	return &wasmvmtypes.IBCReceiveResponse{Acknowledgement: ack, Attributes: log}, 0, nil
 }
 

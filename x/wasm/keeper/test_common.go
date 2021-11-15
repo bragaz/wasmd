@@ -7,6 +7,8 @@ import (
 	"io/ioutil"
 	"time"
 
+	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
+	"github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -37,11 +39,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/gov"
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/ibc-go/modules/apps/transfer"
-	ibctransfertypes "github.com/cosmos/ibc-go/modules/apps/transfer/types"
-	ibc "github.com/cosmos/ibc-go/modules/core"
-	ibchost "github.com/cosmos/ibc-go/modules/core/24-host"
-	ibckeeper "github.com/cosmos/ibc-go/modules/core/keeper"
 	"github.com/cosmos/cosmos-sdk/x/mint"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	"github.com/cosmos/cosmos-sdk/x/params"
@@ -56,6 +53,13 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/cosmos/cosmos-sdk/x/upgrade"
 	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
+	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/cosmos/ibc-go/modules/apps/transfer"
+	ibctransfertypes "github.com/cosmos/ibc-go/modules/apps/transfer/types"
+	ibc "github.com/cosmos/ibc-go/modules/core"
+	ibchost "github.com/cosmos/ibc-go/modules/core/24-host"
+	ibckeeper "github.com/cosmos/ibc-go/modules/core/keeper"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -63,9 +67,6 @@ import (
 	"github.com/tendermint/tendermint/libs/rand"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/CosmWasm/wasmd/x/wasm/keeper/wasmtesting"
-	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
 type TestingT interface {
@@ -94,7 +95,7 @@ var ModuleBasics = module.NewBasicManager(
 	transfer.AppModuleBasic{},
 )
 
-func MakeTestCodec(t TestingT) codec.Marshaler {
+func MakeTestCodec(t TestingT) codec.Codec {
 	return MakeEncodingConfig(t).Marshaler
 }
 
@@ -141,6 +142,10 @@ type TestKeepers struct {
 	EncodingConfig params2.EncodingConfig
 }
 
+type MockVersionSetter struct{}
+
+func (MockVersionSetter) SetProtocolVersion(uint64) {}
+
 // CreateDefaultTestInput common settings for CreateTestInput
 func CreateDefaultTestInput(t TestingT) (sdk.Context, TestKeepers) {
 	return CreateTestInput(t, false, "staking")
@@ -171,6 +176,7 @@ func createTestInput(
 	keyParams := sdk.NewKVStoreKey(paramstypes.StoreKey)
 	tkeyParams := sdk.NewTransientStoreKey(paramstypes.TStoreKey)
 	keyGov := sdk.NewKVStoreKey(govtypes.StoreKey)
+	keyUpgrade := storetypes.NewKVStoreKey(upgradetypes.StoreKey)
 	keyIBC := sdk.NewKVStoreKey(ibchost.StoreKey)
 	keyCapability := sdk.NewKVStoreKey(capabilitytypes.StoreKey)
 	keyCapabilityTransient := storetypes.NewMemoryStoreKey(capabilitytypes.MemStoreKey)
@@ -208,6 +214,7 @@ func createTestInput(
 	paramsKeeper.Subspace(crisistypes.ModuleName)
 	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
 	paramsKeeper.Subspace(capabilitytypes.ModuleName)
+	paramsKeeper.Subspace(upgradetypes.ModuleName)
 	paramsKeeper.Subspace(ibchost.ModuleName)
 
 	maccPerms := map[string][]string{ // module account permissions
@@ -244,9 +251,10 @@ func createTestInput(
 	)
 	bankParams := banktypes.DefaultParams()
 	bankKeeper.SetParams(ctx, bankParams)
-	bankKeeper.SetSupply(ctx, banktypes.NewSupply(sdk.NewCoins(
+	err := bankKeeper.MintCoins(ctx, minttypes.ModuleName, sdk.NewCoins(
 		sdk.NewCoin("denom", sdk.NewInt(10000)),
-	)))
+	))
+	require.NoError(t, err)
 	stakingSubsp, _ := paramsKeeper.GetSubspace(stakingtypes.ModuleName)
 	stakingKeeper := stakingkeeper.NewKeeper(appCodec, keyStaking, authKeeper, bankKeeper, stakingSubsp)
 	stakingKeeper.SetParams(ctx, TestingStakeParams)
@@ -262,9 +270,10 @@ func createTestInput(
 	// set some funds ot pay out validatores, based on code from:
 	// https://github.com/cosmos/cosmos-sdk/blob/fea231556aee4d549d7551a6190389c4328194eb/x/distribution/keeper/keeper_test.go#L50-L57
 	distrAcc := distKeeper.GetDistributionAccount(ctx)
-	err := bankKeeper.SetBalances(ctx, distrAcc.GetAddress(), sdk.NewCoins(
-		sdk.NewCoin("stake", sdk.NewInt(2000000)),
-	))
+	stake := sdk.NewCoins(sdk.NewCoin("stake", sdk.NewInt(2000000)))
+	err = bankKeeper.MintCoins(ctx, minttypes.ModuleName, stake)
+	require.NoError(t, err)
+	err = bankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, distrAcc.GetAddress(), stake)
 	require.NoError(t, err)
 	authKeeper.SetModuleAccount(ctx, distrAcc)
 	capabilityKeeper := capabilitykeeper.NewKeeper(appCodec, keyCapability, keyCapabilityTransient)
@@ -273,10 +282,14 @@ func createTestInput(
 
 	ibcSubsp, _ := paramsKeeper.GetSubspace(ibchost.ModuleName)
 
+	skipHeights := make(map[int64]bool)
+	upgradeKeeper := upgradekeeper.NewKeeper(skipHeights, keyUpgrade, appCodec, tempDir, MockVersionSetter{})
+
 	ibcKeeper := ibckeeper.NewKeeper(
-		appCodec, keyIBC, ibcSubsp, stakingKeeper, scopedIBCKeeper,
+		appCodec, keyIBC, ibcSubsp, stakingKeeper, upgradeKeeper, scopedIBCKeeper,
 	)
 
+	// TODO: Remove these routes
 	router := baseapp.NewRouter()
 	bh := bank.NewHandler(bankKeeper)
 	router.AddRoute(sdk.NewRoute(banktypes.RouterKey, bh))
@@ -284,6 +297,9 @@ func createTestInput(
 	router.AddRoute(sdk.NewRoute(stakingtypes.RouterKey, sh))
 	dh := distribution.NewHandler(distKeeper)
 	router.AddRoute(sdk.NewRoute(distributiontypes.RouterKey, dh))
+
+	// TODO: Figure  out how to register new GRPC style services here
+	msgRouter := baseapp.NewMsgServiceRouter()
 
 	querier := baseapp.NewGRPCQueryRouter()
 	banktypes.RegisterQueryServer(querier, bankKeeper)
@@ -303,6 +319,7 @@ func createTestInput(
 		scopedWasmKeeper,
 		wasmtesting.MockIBCTransferKeeper{},
 		router,
+		msgRouter,
 		querier,
 		tempDir,
 		wasmConfig,
@@ -498,7 +515,7 @@ func StoreRandomContract(t TestingT, ctx sdk.Context, keepers TestKeepers, mock 
 	creator, _, creatorAddr := keyPubAddr()
 	fundAccounts(t, ctx, keepers.AccountKeeper, keepers.BankKeeper, creatorAddr, anyAmount)
 	keepers.WasmKeeper.wasmVM = mock
-	wasmCode := append(wasmIdent, rand.Bytes(10)...) //nolint:gocritic
+	wasmCode := append(wasmIdent, rand.Bytes(10)...)
 	codeID, err := keepers.ContractKeeper.Create(ctx, creatorAddr, wasmCode, nil)
 	require.NoError(t, err)
 	exampleContract := ExampleContract{InitialAmount: anyAmount, Creator: creator, CreatorAddr: creatorAddr, CodeID: codeID}
@@ -599,7 +616,7 @@ func (m BurnerExampleInitMsg) GetBytes(t TestingT) []byte {
 	return initMsgBz
 }
 
-func createFakeFundedAccount(t TestingT, ctx sdk.Context, am authkeeper.AccountKeeper, bank bankkeeper.Keeper, coins sdk.Coins) sdk.AccAddress { //nolint:deadcode,unused
+func createFakeFundedAccount(t TestingT, ctx sdk.Context, am authkeeper.AccountKeeper, bank bankkeeper.Keeper, coins sdk.Coins) sdk.AccAddress {
 	_, _, addr := keyPubAddr()
 	fundAccounts(t, ctx, am, bank, addr, coins)
 	return addr
@@ -608,10 +625,12 @@ func createFakeFundedAccount(t TestingT, ctx sdk.Context, am authkeeper.AccountK
 func fundAccounts(t TestingT, ctx sdk.Context, am authkeeper.AccountKeeper, bank bankkeeper.Keeper, addr sdk.AccAddress, coins sdk.Coins) {
 	acc := am.NewAccountWithAddress(ctx, addr)
 	am.SetAccount(ctx, acc)
-	require.NoError(t, bank.SetBalances(ctx, addr, coins))
+	err := bank.MintCoins(ctx, minttypes.ModuleName, coins)
+	require.NoError(t, err)
+	bank.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, addr, coins)
 }
 
-var keyCounter uint64
+var keyCounter uint64 = 0
 
 // we need to make this deterministic (same every test run), as encoded address size and thus gas cost,
 // depends on the actual bytes (due to ugly CanonicalAddress encoding)

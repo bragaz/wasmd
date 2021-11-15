@@ -20,7 +20,7 @@ func NewAnteHandler(
 	signModeHandler signing.SignModeHandler,
 	txCounterStoreKey sdk.StoreKey,
 	feegrantKeeper ante.FeegrantKeeper,
-    channelKeeper channelkeeper.Keeper,
+	channelKeeper channelkeeper.Keeper,
 ) sdk.AnteHandler {
 	// copied sdk https://github.com/cosmos/cosmos-sdk/blob/v0.42.9/x/auth/ante/ante.go
 	return sdk.ChainAnteDecorators(

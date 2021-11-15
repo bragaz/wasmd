@@ -223,7 +223,7 @@ func TestLegacyQueryContractHistory(t *testing.T) {
 	keeper := keepers.WasmKeeper
 
 	var (
-		otherAddr sdk.AccAddress = bytes.Repeat([]byte{0x2}, sdk.AddrLen)
+		otherAddr sdk.AccAddress = bytes.Repeat([]byte{0x2}, types.AddrLen)
 	)
 
 	specs := map[string]struct {

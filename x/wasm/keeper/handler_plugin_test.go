@@ -192,11 +192,12 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotMsg = make([]sdk.Msg, 0)
 			router := baseapp.NewRouter()
+			msgRouter := baseapp.NewMsgServiceRouter()
 			router.AddRoute(spec.srcRoute)
 
 			// when
 			ctx := sdk.Context{}
-			h := NewSDKMessageHandler(router, MessageEncoders{Custom: spec.srcEncoder})
+			h := NewSDKMessageHandler(router, msgRouter, MessageEncoders{Custom: spec.srcEncoder})
 			gotEvents, gotData, gotErr := h.DispatchMsg(ctx, myContractAddr, "myPort", myContractMessage)
 
 			// then
@@ -318,8 +319,6 @@ func TestBurnCoinMessageHandlerIntegration(t *testing.T) {
 	ctx, keepers := CreateDefaultTestInput(t)
 	k := keepers.WasmKeeper
 
-	before, err := keepers.BankKeeper.TotalSupply(sdk.WrapSDKContext(ctx), &banktypes.QueryTotalSupplyRequest{})
-	require.NoError(t, err)
 	example := InstantiateHackatomExampleContract(t, ctx, keepers) // with deposit of 100 stake
 
 	specs := map[string]struct {
@@ -372,6 +371,9 @@ func TestBurnCoinMessageHandlerIntegration(t *testing.T) {
 				},
 				}, 0, nil
 			}}
+
+			before, err := keepers.BankKeeper.TotalSupply(sdk.WrapSDKContext(ctx), &banktypes.QueryTotalSupplyRequest{})
+			require.NoError(t, err)
 
 			// when
 			_, err = k.execute(ctx, example.Contract, example.CreatorAddr, nil, nil)

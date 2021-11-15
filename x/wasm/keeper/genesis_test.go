@@ -102,7 +102,7 @@ func TestGenesisExportImport(t *testing.T) {
 	rand.Shuffle(len(exportedState.Sequences), func(i, j int) {
 		exportedState.Sequences[i], exportedState.Sequences[j] = exportedState.Sequences[j], exportedState.Sequences[i]
 	})
-	exportedGenesis, err := wasmKeeper.cdc.MarshalJSON(exportedState)
+	exportedGenesis, err := wasmKeeper.cdc.Marshal(exportedState)
 	require.NoError(t, err)
 
 	// setup new instances
@@ -125,7 +125,7 @@ func TestGenesisExportImport(t *testing.T) {
 
 	// re-import
 	var importState wasmTypes.GenesisState
-	err = dstKeeper.cdc.UnmarshalJSON(exportedGenesis, &importState)
+	err = dstKeeper.cdc.Unmarshal(exportedGenesis, &importState)
 	require.NoError(t, err)
 	InitGenesis(dstCtx, dstKeeper, importState, &StakingKeeperMock{}, TestHandler(contractKeeper))
 
@@ -501,7 +501,7 @@ func TestImportContractWithCodeHistoryReset(t *testing.T) {
 		enc64(append([]byte{0x04}, []byte("lastContractId")...)))
 
 	var importState wasmTypes.GenesisState
-	err = keeper.cdc.UnmarshalJSON([]byte(genesisStr), &importState)
+	err = keeper.cdc.Unmarshal([]byte(genesisStr), &importState)
 	require.NoError(t, err)
 	require.NoError(t, importState.ValidateBasic(), genesisStr)
 
@@ -559,9 +559,9 @@ func TestSupportedGenMsgTypes(t *testing.T) {
 	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 	var (
-		myAddress          sdk.AccAddress = bytes.Repeat([]byte{1}, sdk.AddrLen)
-		verifierAddress    sdk.AccAddress = bytes.Repeat([]byte{2}, sdk.AddrLen)
-		beneficiaryAddress sdk.AccAddress = bytes.Repeat([]byte{3}, sdk.AddrLen)
+		myAddress          sdk.AccAddress = bytes.Repeat([]byte{1}, types.AddrLen)
+		verifierAddress    sdk.AccAddress = bytes.Repeat([]byte{2}, 32)
+		beneficiaryAddress sdk.AccAddress = bytes.Repeat([]byte{3}, types.AddrLen)
 	)
 	const denom = "stake"
 	importState := types.GenesisState{
@@ -660,7 +660,7 @@ func setupKeeper(t *testing.T) (*Keeper, sdk.Context, []sdk.StoreKey) {
 	wasmConfig := wasmTypes.DefaultWasmConfig()
 	pk := paramskeeper.NewKeeper(encodingConfig.Marshaler, encodingConfig.Amino, keyParams, tkeyParams)
 
-	srcKeeper := NewKeeper(encodingConfig.Marshaler, keyWasm, pk.Subspace(wasmTypes.DefaultParamspace), authkeeper.AccountKeeper{}, nil, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, nil, nil, nil, nil, nil, tempDir, wasmConfig, SupportedFeatures)
+	srcKeeper := NewKeeper(encodingConfig.Marshaler, keyWasm, pk.Subspace(wasmTypes.DefaultParamspace), authkeeper.AccountKeeper{}, nil, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, nil, nil, nil, nil, nil, nil, tempDir, wasmConfig, SupportedFeatures)
 	return &srcKeeper, ctx, []sdk.StoreKey{keyWasm, keyParams}
 }
 

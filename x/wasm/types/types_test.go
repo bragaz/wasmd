@@ -171,8 +171,8 @@ func TestContractInfoSetExtension(t *testing.T) {
 }
 
 func TestContractInfoMarshalUnmarshal(t *testing.T) {
-	var myAddr sdk.AccAddress = rand.Bytes(sdk.AddrLen)
-	var myOtherAddr sdk.AccAddress = rand.Bytes(sdk.AddrLen)
+	var myAddr sdk.AccAddress = rand.Bytes(AddrLen)
+	var myOtherAddr sdk.AccAddress = rand.Bytes(AddrLen)
 	var anyPos = AbsoluteTxPosition{BlockHeight: 1, TxIndex: 2}
 
 	anyTime := time.Now().UTC()
@@ -197,11 +197,11 @@ func TestContractInfoMarshalUnmarshal(t *testing.T) {
 	govtypes.RegisterInterfaces(interfaceRegistry)
 
 	// when encode
-	bz, err := marshaler.MarshalBinaryBare(&src)
+	bz, err := marshaler.Marshal(&src)
 	require.NoError(t, err)
 	// and decode
 	var dest ContractInfo
-	err = marshaler.UnmarshalBinaryBare(bz, &dest)
+	err = marshaler.Unmarshal(bz, &dest)
 	// then
 	require.NoError(t, err)
 	assert.Equal(t, src, dest)
@@ -292,7 +292,7 @@ func TestContractInfoReadExtension(t *testing.T) {
 func TestNewEnv(t *testing.T) {
 	myTime := time.Unix(0, 1619700924259075000)
 	t.Logf("++ unix: %d", myTime.UnixNano())
-	var myContractAddr sdk.AccAddress = randBytes(sdk.AddrLen)
+	var myContractAddr sdk.AccAddress = randBytes(AddrLen)
 	specs := map[string]struct {
 		srcCtx sdk.Context
 		exp    wasmvmtypes.Env
